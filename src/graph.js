@@ -1,4 +1,9 @@
+import Groq from 'groq-sdk';
 import { product_search, size_recommender, eta, order_lookup, order_cancel } from './tools.js';
+
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY
+});
 
 class CommerceAgent {
   constructor() {
@@ -11,49 +16,95 @@ class CommerceAgent {
     };
   }
 
-  // Router node - classifies intent
-  router(userMessage) {
-    const message = userMessage.toLowerCase();
-    
-    if (message.includes('cancel') && (message.includes('order') || /a\d+/.test(message))) {
-      this.trace.intent = 'order_help';
-      return 'order_help';
-    } else if (message.includes('dress') || message.includes('product') || 
-               message.includes('wedding') || message.includes('midi') ||
-               message.includes('price') || message.includes('size') ||
-               message.includes('eta') || message.includes('zip')) {
-      this.trace.intent = 'product_assist';
-      return 'product_assist';
-    } else if (message.includes('discount') && message.includes('code')) {
-      this.trace.intent = 'other';
-      return 'other';
-    } else {
-      this.trace.intent = 'other';
-      return 'other';
+  // Router node - uses LLM to classify intent
+  async router(userMessage) {
+    const prompt = `Classify this user message into one of these intents:
+- product_assist: for product search, recommendations, sizing, ETA questions
+- order_help: for order lookup, cancellation requests
+- other: for discount codes, general questions, or anything else
+
+User message: "${userMessage}"
+
+Respond with only the intent name.`;
+
+    try {
+      const completion = await groq.chat.completions.create({
+        messages: [{ role: 'user', content: prompt }],
+        model: 'llama-3.3-70b-versatile',
+        temperature: 0
+      });
+
+      const intent = completion.choices[0]?.message?.content?.trim().toLowerCase();
+      this.trace.intent = intent;
+      return intent;
+    } catch (error) {
+      console.error('LLM Router error:', error);
+      // Fallback to rule-based routing
+      const message = userMessage.toLowerCase();
+      if (message.includes('cancel') && (message.includes('order') || /a\d+/.test(message))) {
+        this.trace.intent = 'order_help';
+        return 'order_help';
+      } else if (message.includes('dress') || message.includes('product') || 
+                 message.includes('wedding') || message.includes('midi')) {
+        this.trace.intent = 'product_assist';
+        return 'product_assist';
+      } else {
+        this.trace.intent = 'other';
+        return 'other';
+      }
     }
   }
 
-  // Tool Selector node - decides which tools to call
-  toolSelector(intent, userMessage) {
-    const tools = [];
-    
-    if (intent === 'product_assist') {
-      tools.push('product_search');
-      if (userMessage.toLowerCase().includes('size') || userMessage.includes('m/l') || userMessage.includes('M/L')) {
-        tools.push('size_recommender');
-      }
-      if (/\d{5,6}/.test(userMessage)) { // ZIP code pattern
-        tools.push('eta');
-      }
-    } else if (intent === 'order_help') {
-      tools.push('order_lookup');
-      if (userMessage.toLowerCase().includes('cancel')) {
-        tools.push('order_cancel');
-      }
+  // Tool Selector node - uses LLM to decide which tools to call
+  async toolSelector(intent, userMessage) {
+    if (intent === 'other') {
+      this.trace.tools_called = [];
+      return [];
     }
+
+    const availableTools = {
+      product_assist: ['product_search', 'size_recommender', 'eta'],
+      order_help: ['order_lookup', 'order_cancel']
+    };
+
+    const tools = availableTools[intent] || [];
     
-    this.trace.tools_called = tools;
-    return tools;
+    const prompt = `Given this user message and intent, which tools should be called?
+Available tools: ${tools.join(', ')}
+
+User message: "${userMessage}"
+Intent: ${intent}
+
+Respond with a comma-separated list of tool names, or "none" if no tools needed.`;
+
+    try {
+      const completion = await groq.chat.completions.create({
+        messages: [{ role: 'user', content: prompt }],
+        model: 'llama-3.3-70b-versatile',
+        temperature: 0
+      });
+
+      const response = completion.choices[0]?.message?.content?.trim();
+      const selectedTools = response === 'none' ? [] : 
+        response.split(',').map(t => t.trim()).filter(t => tools.includes(t));
+      
+      this.trace.tools_called = selectedTools;
+      return selectedTools;
+    } catch (error) {
+      console.error('LLM Tool Selector error:', error);
+      // Fallback logic
+      const fallbackTools = [];
+      if (intent === 'product_assist') {
+        fallbackTools.push('product_search');
+        if (userMessage.toLowerCase().includes('size')) fallbackTools.push('size_recommender');
+        if (/\d{5,6}/.test(userMessage)) fallbackTools.push('eta');
+      } else if (intent === 'order_help') {
+        fallbackTools.push('order_lookup');
+        if (userMessage.toLowerCase().includes('cancel')) fallbackTools.push('order_cancel');
+      }
+      this.trace.tools_called = fallbackTools;
+      return fallbackTools;
+    }
   }
 
   // Execute tools and gather evidence
@@ -125,8 +176,51 @@ class CommerceAgent {
     return this.trace.policy_decision;
   }
 
-  // Responder node - composes final reply
-  responder(intent, evidence, policyDecision) {
+  // Responder node - uses LLM to compose final reply
+  async responder(intent, evidence, policyDecision, userMessage) {
+    const systemPrompt = `You are EvoAI, a helpful commerce assistant. Be concise, friendly, and never invent product data.
+
+RULES:
+- For product_assist: recommend max 2 products under user's price cap, include size rationale and ETA
+- For order_help: enforce 60-minute cancellation policy strictly
+- For other: refuse non-existent discount codes, suggest legitimate alternatives
+- Always use only the evidence provided, never hallucinate data`;
+
+    const evidenceText = evidence.map(e => 
+      `${e.tool}: ${JSON.stringify(e.results)}`
+    ).join('\n');
+
+    const prompt = `User message: "${userMessage}"
+Intent: ${intent}
+Evidence from tools:
+${evidenceText}
+
+Policy decision: ${JSON.stringify(policyDecision)}
+
+Compose a helpful response based only on the evidence provided.`;
+
+    try {
+      const completion = await groq.chat.completions.create({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt }
+        ],
+        model: 'llama-3.3-70b-versatile',
+        temperature: 0.3
+      });
+
+      const message = completion.choices[0]?.message?.content?.trim();
+      this.trace.final_message = message;
+      return message;
+    } catch (error) {
+      console.error('LLM Responder error:', error);
+      // Fallback to rule-based response
+      return this.fallbackResponder(intent, evidence, policyDecision);
+    }
+  }
+
+  // Fallback responder for when LLM fails
+  fallbackResponder(intent, evidence, policyDecision) {
     let message = '';
     
     if (intent === 'product_assist') {
@@ -178,7 +272,7 @@ class CommerceAgent {
   }
 
   // Main processing method
-  process(userMessage) {
+  async process(userMessage) {
     // Reset trace
     this.trace = {
       intent: '',
@@ -188,17 +282,25 @@ class CommerceAgent {
       final_message: ''
     };
 
-    // Execute graph nodes
-    const intent = this.router(userMessage);
-    const tools = this.toolSelector(intent, userMessage);
-    const evidence = this.executeTools(tools, userMessage);
-    const policyDecision = this.policyGuard(intent, evidence);
-    const finalMessage = this.responder(intent, evidence, policyDecision);
+    try {
+      // Execute graph nodes with LLM integration
+      const intent = await this.router(userMessage);
+      const tools = await this.toolSelector(intent, userMessage);
+      const evidence = this.executeTools(tools, userMessage);
+      const policyDecision = this.policyGuard(intent, evidence);
+      const finalMessage = await this.responder(intent, evidence, policyDecision, userMessage);
 
-    return {
-      trace: this.trace,
-      message: finalMessage
-    };
+      return {
+        trace: this.trace,
+        message: finalMessage
+      };
+    } catch (error) {
+      console.error('Agent processing error:', error);
+      return {
+        trace: this.trace,
+        message: "I'm sorry, I encountered an error processing your request. Please try again."
+      };
+    }
   }
 }
 
