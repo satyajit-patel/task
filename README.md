@@ -2,6 +2,9 @@
 
 A LangGraph-based AI agent for e-commerce product recommendations and order management with a Next.js UI.
 
+## Live Demo  
+[Click here to view](https://task-phi-azure.vercel.app/)
+
 ## Features
 
 - **Product Assist**: Search products, size recommendations, ETA calculations
