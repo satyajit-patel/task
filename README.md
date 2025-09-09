@@ -1,36 +1,103 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# EvoAI Commerce Assistant
 
-## Getting Started
+A LangGraph-based AI agent for e-commerce product recommendations and order management with a Next.js UI.
 
-First, run the development server:
+## Features
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **Product Assist**: Search products, size recommendations, ETA calculations
+- **Order Management**: Secure order lookup and cancellation with 60-minute policy
+- **Policy Enforcement**: Strict cancellation rules and guardrails
+- **Real-time Chat UI**: Clean Tailwind CSS interface with debug traces
+
+## Project Structure
+
+```
+/src                  # LangGraph agent + tools
+  graph.js           # Main agent with Router, ToolSelector, PolicyGuard, Responder nodes
+  tools.js           # Product search, order management, ETA tools
+/data
+  products.json      # Product catalog
+  orders.json        # Order database
+/prompts
+  system.md          # System prompt with brand voice and rules
+/tests
+  run_tests.js       # Test runner for all 4 required scenarios
+/app                 # Next.js app
+  page.js            # Main chat interface
+  api/chat/route.js  # API endpoint
+  globals.css        # Tailwind styles
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Setup & Installation
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+1. **Install dependencies:**
+   ```bash
+   npm install
+   ```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+2. **Run tests:**
+   ```bash
+   node tests/run_tests.js
+   ```
 
-## Learn More
+3. **Start development server:**
+   ```bash
+   npm run dev
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+4. **Open browser:**
+   Navigate to `http://localhost:3000`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Agent Architecture
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The LangGraph agent consists of 4 main nodes:
 
-## Deploy on Vercel
+1. **Router** → Classifies intent: `product_assist`, `order_help`, or `other`
+2. **ToolSelector** → Decides which tools to call based on intent
+3. **PolicyGuard** → Enforces 60-minute cancellation rule and refusal patterns  
+4. **Responder** → Composes final user reply from structured data
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Tools Available
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `product_search(query, price_max, tags)` - Search product catalog
+- `size_recommender(user_inputs)` - M vs L size guidance
+- `eta(zip)` - Shipping estimate by ZIP code
+- `order_lookup(order_id, email)` - Secure order retrieval
+- `order_cancel(order_id, timestamp)` - Policy-enforced cancellation
+
+## Test Cases
+
+The agent handles these scenarios:
+
+1. **Product Assist**: "Wedding guest, midi, under $120 — I'm between M/L. ETA to 560001?"
+2. **Order Cancellation (Allowed)**: "Cancel order A1003 — email mira@example.com"
+3. **Order Cancellation (Blocked)**: "Cancel order A1002 — email alex@example.com"  
+4. **Guardrail**: "Can you give me a discount code that doesn't exist?"
+
+## Key Policies
+
+- **60-minute cancellation window** - Orders can only be cancelled within 60 minutes of creation
+- **Max 2 product recommendations** - Prevents overwhelming users
+- **No data hallucination** - Only uses information from tool results
+- **Price cap enforcement** - Respects user budget constraints
+
+## JSON Trace Schema
+
+Every response includes an internal trace:
+
+```json
+{
+  "intent": "product_assist|order_help|other",
+  "tools_called": ["tool1", "tool2"],
+  "evidence": [{"tool": "name", "results": {}}],
+  "policy_decision": {"cancel_allowed": true, "reason": "string"},
+  "final_message": "string"
+}
+```
+
+## Development
+
+- Built with Next.js 15 and Tailwind CSS 4
+- Pure JavaScript implementation (no external LLM required)
+- Self-contained with mock data
+- Deterministic responses for testing

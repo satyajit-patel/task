@@ -2,10 +2,12 @@
   "name": "my-app",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "node tests/run_tests.js"
   },
   "dependencies": {
     "react": "19.1.0",

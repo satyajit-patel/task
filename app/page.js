@@ -1,103 +1,133 @@
-import Image from "next/image";
+'use client';
+
+import { useState } from 'react';
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.js
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+  const sendMessage = async () => {
+    if (!input.trim()) return;
+
+    const userMessage = { type: 'user', content: input };
+    setMessages(prev => [...prev, userMessage]);
+    setLoading(true);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: input })
+      });
+
+      const data = await response.json();
+      
+      setMessages(prev => [...prev, 
+        { type: 'assistant', content: data.message },
+        { type: 'trace', content: data.trace }
+      ]);
+    } catch (error) {
+      setMessages(prev => [...prev, 
+        { type: 'error', content: 'Sorry, something went wrong.' }
+      ]);
+    }
+
+    setInput('');
+    setLoading(false);
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-4xl mx-auto px-4 py-4">
+          <h1 className="text-2xl font-bold text-gray-900">EvoAI Commerce Assistant</h1>
+          <p className="text-gray-600">Get help with products and orders</p>
+        </div>
+      </header>
+
+      <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-6">
+        <div className="bg-white rounded-lg shadow-sm border h-96 mb-4 overflow-y-auto p-4 space-y-4">
+          {messages.length === 0 && (
+            <div className="text-gray-500 text-center py-8">
+              <p>👋 Hi! I can help you with:</p>
+              <ul className="mt-2 space-y-1 text-sm">
+                <li>• Product recommendations and sizing</li>
+                <li>• Order cancellations (within 60 minutes)</li>
+                <li>• Shipping estimates</li>
+              </ul>
+            </div>
+          )}
+          
+          {messages.map((msg, idx) => (
+            <div key={idx} className={`${
+              msg.type === 'user' ? 'ml-auto bg-blue-500 text-white' :
+              msg.type === 'assistant' ? 'mr-auto bg-gray-100' :
+              msg.type === 'trace' ? 'mr-auto bg-yellow-50 border border-yellow-200' :
+              'mr-auto bg-red-50 border border-red-200'
+            } max-w-xs rounded-lg px-3 py-2`}>
+              {msg.type === 'trace' ? (
+                <details className="text-xs">
+                  <summary className="cursor-pointer font-medium text-yellow-700">
+                    Debug Trace
+                  </summary>
+                  <pre className="mt-2 whitespace-pre-wrap text-yellow-800">
+                    {JSON.stringify(msg.content, null, 2)}
+                  </pre>
+                </details>
+              ) : (
+                <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
+              )}
+            </div>
+          ))}
+          
+          {loading && (
+            <div className="mr-auto bg-gray-100 max-w-xs rounded-lg px-3 py-2">
+              <div className="flex items-center space-x-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                <span className="text-sm text-gray-600">Thinking...</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex space-x-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+            placeholder="Ask about products or orders..."
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={loading}
+          />
+          <button
+            onClick={sendMessage}
+            disabled={loading || !input.trim()}
+            className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            Send
+          </button>
+        </div>
+
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+          <div className="bg-white p-4 rounded-lg border">
+            <h3 className="font-medium text-gray-900 mb-2">Try these examples:</h3>
+            <ul className="space-y-1 text-gray-600">
+              <li>• "Wedding guest, midi, under $120 — I'm between M/L. ETA to 560001?"</li>
+              <li>• "Cancel order A1003 — email mira@example.com"</li>
+            </ul>
+          </div>
+          <div className="bg-white p-4 rounded-lg border">
+            <h3 className="font-medium text-gray-900 mb-2">Policies:</h3>
+            <ul className="space-y-1 text-gray-600">
+              <li>• Cancellations within 60 minutes only</li>
+              <li>• Max 2 product recommendations</li>
+              <li>• Authentic product information only</li>
+            </ul>
+          </div>
         </div>
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
     </div>
   );
 }
