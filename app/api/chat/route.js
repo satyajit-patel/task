@@ -9,7 +9,7 @@ export async function POST(request) {
     }
 
     const agent = new CommerceAgent();
-    const result = agent.process(message);
+    const result = await agent.process(message);
 
     return Response.json({
       message: result.message,
